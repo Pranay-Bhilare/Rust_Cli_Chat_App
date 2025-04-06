@@ -1,26 +1,38 @@
-use::tokio::net::{TcpListener,TcpStream};
-use::tokio::io::{self,AsyncReadExt,AsyncWriteExt};
-use::tokio::sync::broadcast;
-// use::std::sync::Arc;
+use tokio::net::{TcpListener,TcpStream};
+use tokio::io::{self,AsyncReadExt,AsyncWriteExt};
+use tokio::sync::broadcast;
+use tokio::signal;
+use tracing::{info,warn,error};
+use tracing_subscriber;
 
 const ADDRESS: &str = "127.0.0.1:6000";
 const MSG_SIZE: usize = 32;
 
-// #[tokio::main]
+#[tokio::main]
 async fn main() {
+    tracing_subscriber::fmt::init();
+
     let listener = TcpListener::bind(ADDRESS).await.expect("Failed to bind");
+    info!("Server listening on {}", ADDRESS);
     let (tx,_rx) = broadcast::channel(16);
     let mut next_id: usize = 0;
     loop{
         tokio::select! {
-        Ok((mut socket, addr)) = listener.accept() => {
-           let rx = tx.subscribe();
+            Ok((mut socket, addr)) = listener.accept() => {
+                info!("New client connection : {}", addr);
+            let rx = tx.subscribe();
 
-           tokio::spawn(handle_client(socket, tx.clone(),rx,next_id,addr));
-           next_id += 1;
+            tokio::spawn(handle_client(socket, tx.clone(),rx,next_id,addr));
+            next_id += 1;
 
-        }}
+            },
+            _ = signal::ctrl_c() => { 
+                info!("Recieved shutting down signal.... shutting down server");
+                break;
+            }
+        }
     }
+    info!("Server shutting down");
 }
 
 async fn handle_client(
@@ -43,12 +55,14 @@ async fn handle_client(
                     Ok(_) => {
                         let msg = String::from_utf8_lossy(&buffer).trim_end_matches(|c| c == '\0' || c == ' ').to_string();
                         if msg == :quit {
+                            info!("Client {} ({}) disconnected with :quit", id, addr);
                             break;
                         }
 
-                        // Info daalo ki konsa client agaya hai
+                        info!("Client {} ({}) : {}", id, addr, msg);
+
                         if let Errr(e) = tx.send((id,msg,addr)){
-                            warn!("Error broadcasting message from cleint {} {]",id, e);
+                            warn!("Error broadcasting message from client {} {}",id, e);
                         }
                     },
 
@@ -60,7 +74,6 @@ async fn handle_client(
             },
 
             result = rx.recv() => {
-                //  prevents a client from receiving back its own messages.
                 if Ok(sender_id,msg,sender_addr) = result { 
                     if sender_id != id { 
                         let display_msg = format!("[Client {}]: {}", sender_id, msg);
@@ -77,5 +90,10 @@ async fn handle_client(
                 }
             }
         }
+
+    if let Err(e) = tx.send((id, String::from("has left the chat"),addr)) {
+        warn!("Failed to announce client departure : {}", e);
+    }
+    info!("Connection closed with client {} ({})", id, addr);
 
 }

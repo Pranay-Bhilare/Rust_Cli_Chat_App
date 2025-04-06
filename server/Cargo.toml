@@ -6,3 +6,5 @@ edition = "2024"
 [dependencies]
 tokio = { version = "1.44.1", features = ["full"] }
 clap = { version = "4.5.35", features = ["derive"] }
+tracing = { version = "0.1"}
+tracing_subscriber = { version = "0.3.0"}
